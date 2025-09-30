@@ -1,4 +1,4 @@
-from app.pdf import build_observation_html, render_pdf_bytes
+from mailer.app.pdf_client import build_observation_html, render_pdf_bytes
 
 def test_pdf_generation(tmp_path):
     sample = {"teacher_name": "Test", "obs_date": "2025-09-28"}

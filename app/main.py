@@ -15,11 +15,11 @@ logging.info("[startup] MAILER_API_KEY len=%d", len(os.getenv("MAILER_API_KEY", 
 
 from typing import Any
 
-from fastapi import FastAPI, BackgroundTasks, HTTPException, Request, Security
+from fastapi import FastAPI, BackgroundTasks,Request, Security
 from fastapi.security import APIKeyHeader
 from .schemas import ObservationEmailIn, EmailStatusOut, EmailStatus
 from .config import settings
-from .pdf import build_observation_html, render_pdf_bytes
+from .pdf_client import build_observation_html, render_pdf_bytes
 from .emailer import send_observation_email
 from .security import verify_api_key
 
@@ -30,26 +30,29 @@ print("[env] MAILER_API_KEY set? ", bool(os.getenv("MAILER_API_KEY")))
 print("[env] MAILER_API_KEY prefix:", (os.getenv("MAILER_API_KEY","")[:4] + "…"))
 
 
-app = FastAPI()
 app = FastAPI(
     title="FocusEd Mailer",
     version="0.1.0",
     swagger_ui_parameters={"persistAuthorization": True},  # remembers key between calls
 )
 
+@app.get("/health")
+def health():
+    return{"status": "OK"}
+
 @app.post("/mail/observation", response_model=EmailStatusOut)
 def mail_observation(
     payload: ObservationEmailIn,
     request: Request,
     bg: BackgroundTasks,
-    api_key: str = Security(verify_api_key)):
-    
-
+    api_key: str = Security(verify_api_key),
+):
+    # EN: Fail fast if misconfigured / BR: Falhar cedo se sem config
     if not settings.SENDGRID_API_KEY or not settings.MAILER_FROM_EMAIL:
-        return {"email_status": EmailStatus.failed.value}  # ensure string value
+        return {"email_status": EmailStatus.failed.value}
 
-    
     def worker(d: dict):
+        try:
             html = build_observation_html(d)
             pdf = render_pdf_bytes(html)
             subject = f"Observation feedback — {d.get('teacher_name')} — {d.get('obs_date')}"
@@ -57,14 +60,12 @@ def mail_observation(
                 d["to_email"],
                 subject,
                 "Please find attached the feedback on your recent observation",
-                pdf
-             )
-            
-            # Outcome logging
-            if status == 202:
-                print({"evt": "mail_status", "status": "sent", "to": d["to_email"]})
-            else:
-                print({"evt": "mail_status", "status": "failed", "to": d["to_email"], "code": status})
+                pdf,
+            )
+            evt = {"evt": "mail_status", "to": d["to_email"]}
+            print({**evt, "status": "sent" if status == 202 else "failed", "code": status})
+        except Exception as e:
+            print({"evt": "mail_status", "status": "failed", "error": str(e), "to": d.get("to_email")})
 
     bg.add_task(worker, payload.model_dump())
     return {"email_status": EmailStatus.queued}

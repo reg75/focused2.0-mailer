@@ -1,5 +1,5 @@
 from html import escape
-from weasyprint import HTML
+import os, requests
 
 A4_CSS = """@page { size: A4; margin: 18mm; }
 body {font-family: Calibri, Arial, sans-serif; font-size: 12pt; }
@@ -24,5 +24,15 @@ def build_observation_html(d: dict) -> str:
 <tr><th>Other Comments</th><td class="pre">{e.get('comments','') or '—'}</td></tr>
 </table></body></html>"""
 
+RENDERER_URL = os.getenv("RENDERER_URL", "http://renderer:8002")
+
 def render_pdf_bytes(html_str: str) -> bytes:
-    return HTML(string=html_str).write_pdf()
+    """Call the renderer microservice to convert HTML→PDF bytes."""
+    r = requests.post(
+        f"{RENDERER_URL}/render",
+        json={"html": html_str},
+        timeout=15,
+        headers={"Content-Type": "application/json"},
+    )
+    r.raise_for_status()
+    return r.content
